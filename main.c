@@ -1,6 +1,6 @@
 #include "funciones.h"
 
-int main() {
+int main(void) {
     ejecutarSistema();
     return 0;
 }
