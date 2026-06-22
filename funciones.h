@@ -62,6 +62,8 @@ void aMayusculas(char *cadena);
 int nombreExiste(Zona zonas[], int num_zonas, const char *nombre_buscar, int indice_ignorar);
 
 void configuracionInicial(Zona zonas[], int *num_zonas);
+void verAlertasActivas(Zona zonas[], int num_zonas);
+void verRecomendaciones(Zona zonas[], int num_zonas);
 int cargarHistorico(Zona zonas[], int *n);
 int guardarHistorico(Zona zonas[], int n);
 void verPromediosHistoricos(Zona zonas[], int num_zonas);
@@ -70,6 +72,7 @@ void gestionarZonas(Zona zonas[], int *num_zonas);
 void registrarLectura(Zona zonas[], int n);
 void verMonitoreoActual(Zona zonas[], int num_zonas);
 void generarSemillaOculta(Zona zonas[], int num_zonas);
+void exportarHistorialCSV(Zona zonas[], int num_zonas);
 void ejecutarSistema();
 
 #endif
