@@ -4,6 +4,111 @@
 
 #include "funciones.h"
 
+static int calcularSubIndice(float c, float bp_lo, float bp_hi, int i_lo, int i_hi) {
+    return (int)(((float)(i_hi - i_lo) / (bp_hi - bp_lo)) * (c - bp_lo) + i_lo + 0.5f);
+}
+
+static int calcularIQCA_Global(float pm25, float pm10, float o3, float co, float so2, float no2) {
+    int max_iqca = 0, iq = 0;
+
+    if(pm25 <= 12.0f) iq = calcularSubIndice(pm25, 0.0f, 12.0f, 0, 50);
+    else if(pm25 <= 35.4f) iq = calcularSubIndice(pm25, 12.1f, 35.4f, 51, 100);
+    else if(pm25 <= 55.4f) iq = calcularSubIndice(pm25, 35.5f, 55.4f, 101, 200);
+    else iq = calcularSubIndice(pm25, 55.5f, 150.4f, 201, 300);
+    if(iq > max_iqca) max_iqca = iq;
+
+    iq = (int)(pm10 * (100.0f / 154.0f)); if(iq > max_iqca) max_iqca = iq;
+    iq = (int)(co * (100.0f / 9.4f)); if(iq > max_iqca) max_iqca = iq;
+    iq = (int)(so2 * (100.0f / 75.0f)); if(iq > max_iqca) max_iqca = iq;
+    iq = (int)(no2 * (100.0f / 100.0f)); if(iq > max_iqca) max_iqca = iq;
+    iq = (int)(o3 * (100.0f / 70.0f)); if(iq > max_iqca) max_iqca = iq;
+
+    return max_iqca;
+}
+
+static int determinarNivelRiesgo(int iqca) {
+    if (iqca <= 50) return 1;
+    if (iqca <= 100) return 2;
+    if (iqca <= 200) return 3;
+    if (iqca <= 300) return 4;
+    if (iqca <= 400) return 5;
+    return 6;
+}
+
+static const char* obtenerNombreNivel(int nivel) {
+    switch(nivel) {
+        case 1: return "DESEABLE (Verde)";
+        case 2: return "ACEPTABLE (Amarillo)";
+        case 3: return "PRECAUCION (Naranja)";
+        case 4: return "ALERTA (Rojo)";
+        case 5: return "ALARMA (Morado)";
+        case 6: return "EMERGENCIA (Marron)";
+        default: return "DESCONOCIDO";
+    }
+}
+
+void alterarDatosExposicion(Zona zonas[], int num_zonas) {
+    float factor;
+    printf("\n==================================================\n");
+    printf("    [MODO EXPOSICION] ALTERACION DE DATOS         \n");
+    printf("==================================================\n");
+    printf("Ingrese multiplicador (ej. 2.0 para duplicar, 0.5 para reducir): ");
+
+    if (scanf("%f", &factor) != 1) {
+        limpiarBuffer();
+        return;
+    }
+    limpiarBuffer();
+
+    long max_fecha_val = 0;
+    for (int i = 0; i < num_zonas; i++) {
+        if (zonas[i].tiene_actual) {
+            long val = zonas[i].actual.fecha.anio * 10000 +
+                       zonas[i].actual.fecha.mes * 100 +
+                       zonas[i].actual.fecha.dia;
+            if (val > max_fecha_val) {
+                max_fecha_val = val;
+            }
+        }
+    }
+
+    int alterados = 0;
+    for (int i = 0; i < num_zonas; i++) {
+        if (!zonas[i].tiene_actual) continue;
+
+        long val = zonas[i].actual.fecha.anio * 10000 +
+                   zonas[i].actual.fecha.mes * 100 +
+                   zonas[i].actual.fecha.dia;
+
+        if (val == max_fecha_val) {
+            zonas[i].actual.pm25 *= factor;
+            zonas[i].actual.pm10 *= factor;
+            zonas[i].actual.o3 *= factor;
+            zonas[i].actual.co *= factor;
+            zonas[i].actual.so2 *= factor;
+            zonas[i].actual.no2 *= factor;
+
+            zonas[i].actual.iqca = calcularIQCA_Global(
+                zonas[i].actual.pm25, zonas[i].actual.pm10, zonas[i].actual.o3,
+                zonas[i].actual.co, zonas[i].actual.so2, zonas[i].actual.no2);
+
+            zonas[i].actual.nivel_riesgo = determinarNivelRiesgo(zonas[i].actual.iqca);
+
+            for (int j = zonas[i].num_lecturas - 1; j >= 0; j--) {
+                if (zonas[i].historico[j].fecha.dia == zonas[i].actual.fecha.dia &&
+                    zonas[i].historico[j].fecha.mes == zonas[i].actual.fecha.mes &&
+                    zonas[i].historico[j].fecha.anio == zonas[i].actual.fecha.anio) {
+
+                    zonas[i].historico[j] = zonas[i].actual;
+                    break;
+                }
+            }
+            alterados++;
+        }
+    }
+    printf("\n[INFO] %d zonas alteradas exitosamente. El publico esta en peligro/a salvo.\n", alterados);
+}
+
 void limpiarBuffer(void) {
     int c;
     while ((c = getchar()) != '\n' && c != EOF);
@@ -223,16 +328,21 @@ void registrarLectura(Zona zonas[], int n) {
     FactoresClimaticos clima_nuevo;
 
     printf("\nNiveles de contaminacion para %s\n", zona->nombre);
-    nueva.co2  = leerFloatPositivo("CO2   (ppm)  ");
+    nueva.pm25 = leerFloatPositivo("PM2.5 (ug/m3)");
+    nueva.pm10 = leerFloatPositivo("PM10  (ug/m3)");
+    nueva.o3   = leerFloatPositivo("O3    (ug/m3)");
+    nueva.co   = leerFloatPositivo("CO    (mg/m3)");
     nueva.so2  = leerFloatPositivo("SO2   (ug/m3)");
     nueva.no2  = leerFloatPositivo("NO2   (ug/m3)");
-    nueva.pm25 = leerFloatPositivo("PM2.5 (ug/m3)");
     nueva.fecha = obtenerFechaActual();
 
     printf("\nFactores climaticos en %s:\n", zona->nombre);
     clima_nuevo.temperatura = leerFloatPositivo("Temperatura (C)   ");
     clima_nuevo.viento      = leerFloatPositivo("Viento      (km/h)");
     clima_nuevo.humedad     = leerFloatPositivo("Humedad     (%)   ");
+
+    nueva.iqca = calcularIQCA_Global(nueva.pm25, nueva.pm10, nueva.o3, nueva.co, nueva.so2, nueva.no2);
+    nueva.nivel_riesgo = determinarNivelRiesgo(nueva.iqca);
 
     int es_mismo_dia = 0;
     if (zona->num_lecturas > 0) {
@@ -244,18 +354,11 @@ void registrarLectura(Zona zonas[], int n) {
 
     if (es_mismo_dia) {
         int i_ult = zona->num_lecturas - 1;
-        zona->historico[i_ult].co2  = (zona->historico[i_ult].co2  + nueva.co2)  / 2.0f;
-        zona->historico[i_ult].so2  = (zona->historico[i_ult].so2  + nueva.so2)  / 2.0f;
-        zona->historico[i_ult].no2  = (zona->historico[i_ult].no2  + nueva.no2)  / 2.0f;
-        zona->historico[i_ult].pm25 = (zona->historico[i_ult].pm25 + nueva.pm25) / 2.0f;
-
-        zona->clima.temperatura = (zona->clima.temperatura + clima_nuevo.temperatura) / 2.0f;
-        zona->clima.viento      = (zona->clima.viento      + clima_nuevo.viento)      / 2.0f;
-        zona->clima.humedad     = (zona->clima.humedad     + clima_nuevo.humedad)     / 2.0f;
-
-        zona->actual      = zona->historico[i_ult];
+        zona->historico[i_ult] = nueva;
+        zona->clima = clima_nuevo;
+        zona->actual = nueva;
         zona->tiene_actual = 1;
-        printf("\n[INFO] Ya existia un registro de hoy. Los datos fueron promediados exitosamente.\n");
+        printf("\n[INFO] Ya existia un registro de hoy. Los datos fueron SOBRESCRITOS exitosamente.\n");
     } else {
         zona->clima        = clima_nuevo;
         zona->actual       = nueva;
@@ -273,6 +376,7 @@ void registrarLectura(Zona zonas[], int n) {
         printf("\nLectura registrada: %s [%02d/%02d/%04d]\n",
                zona->nombre, nueva.fecha.dia, nueva.fecha.mes, nueva.fecha.anio);
     }
+    printf("Nivel IQCA Calculado: %d [%s]\n", nueva.iqca, obtenerNombreNivel(nueva.nivel_riesgo));
 }
 
 void verMonitoreoActual(Zona zonas[], int num_zonas) {
@@ -282,561 +386,441 @@ void verMonitoreoActual(Zona zonas[], int num_zonas) {
 
     long max_fecha_val = 0;
 
+    // 1. Encontrar la fecha mas reciente (la de "hoy" o la ultima ingresada)
     for (int i = 0; i < num_zonas; i++) {
         if (zonas[i].tiene_actual) {
-            long fecha_val = (zonas[i].actual.fecha.anio * 10000L) +
-                             (zonas[i].actual.fecha.mes  * 100L)   +
-                              zonas[i].actual.fecha.dia;
-            if (fecha_val > max_fecha_val) max_fecha_val = fecha_val;
-        }
-    }
-
-    if (max_fecha_val == 0) {
-        printf("\nNo hay lecturas actuales registradas.\nPor favor registre una en la Opcion 1.\n");
-        printf("==================================================\n");
-        return;
-    }
-
-    int encontrados = 0;
-
-    for (int i = 0; i < num_zonas; i++) {
-        if (zonas[i].tiene_actual) {
-            long fecha_val = (zonas[i].actual.fecha.anio * 10000L) +
-                             (zonas[i].actual.fecha.mes  * 100L)   +
-                              zonas[i].actual.fecha.dia;
-
-            if (fecha_val == max_fecha_val) {
-                encontrados = 1;
-                printf("\n  Zona: %-10s | Fecha: %02d/%02d/%04d\n",
-                       zonas[i].nombre,
-                       zonas[i].actual.fecha.dia, zonas[i].actual.fecha.mes, zonas[i].actual.fecha.anio);
-                printf("  - CO2:   %7.2f | Limite: %7.2f | %s\n", zonas[i].actual.co2,  LIMITE_CO2,
-                       (zonas[i].actual.co2  > LIMITE_CO2)  ? "EXCEDE" : "NORMAL");
-                printf("  - SO2:   %7.2f | Limite: %7.2f | %s\n", zonas[i].actual.so2,  LIMITE_SO2,
-                       (zonas[i].actual.so2  > LIMITE_SO2)  ? "EXCEDE" : "NORMAL");
-                printf("  - NO2:   %7.2f | Limite: %7.2f | %s\n", zonas[i].actual.no2,  LIMITE_NO2,
-                       (zonas[i].actual.no2  > LIMITE_NO2)  ? "EXCEDE" : "NORMAL");
-                printf("  - PM2.5: %7.2f | Limite: %7.2f | %s\n", zonas[i].actual.pm25, LIMITE_PM25,
-                       (zonas[i].actual.pm25 > LIMITE_PM25) ? "EXCEDE" : "NORMAL");
+            long val = zonas[i].actual.fecha.anio * 10000 +
+                       zonas[i].actual.fecha.mes * 100 +
+                       zonas[i].actual.fecha.dia;
+            if (val > max_fecha_val) {
+                max_fecha_val = val;
             }
         }
     }
 
-    if (!encontrados) {
-        printf("\nNo hay datos visibles para la fecha calculada.\n");
+    // 2. Imprimir SOLO las zonas que coincidan con esa fecha mas reciente
+    for (int i = 0; i < num_zonas; i++) {
+        if (zonas[i].tiene_actual) {
+            long val = zonas[i].actual.fecha.anio * 10000 +
+                       zonas[i].actual.fecha.mes * 100 +
+                       zonas[i].actual.fecha.dia;
+
+            if (val == max_fecha_val) {
+                printf("\nZONA: %s [%02d/%02d/%04d]\n", zonas[i].nombre, zonas[i].actual.fecha.dia, zonas[i].actual.fecha.mes, zonas[i].actual.fecha.anio);
+                printf("  PM2.5: %.2f | PM10: %.2f | O3: %.2f\n", zonas[i].actual.pm25, zonas[i].actual.pm10, zonas[i].actual.o3);
+                printf("  CO: %.2f | SO2: %.2f | NO2: %.2f\n", zonas[i].actual.co, zonas[i].actual.so2, zonas[i].actual.no2);
+                printf("  >> IQCA: %d [%s]\n", zonas[i].actual.iqca, obtenerNombreNivel(zonas[i].actual.nivel_riesgo));
+            } else {
+                printf("\nZONA: %s [Datos desactualizados, no son de hoy]\n", zonas[i].nombre);
+            }
+        } else {
+            printf("\nZONA: %s [Sin datos registrados]\n", zonas[i].nombre);
+        }
     }
-    printf("==================================================\n");
 }
 
 void verPromediosHistoricos(Zona zonas[], int num_zonas) {
     printf("\n==================================================\n");
-    printf("     PROMEDIOS HISTORICOS (HASTA 30 DIAS)         \n");
+    printf("              PROMEDIOS HISTORICOS                \n");
     printf("==================================================\n");
 
     for (int i = 0; i < num_zonas; i++) {
-        printf("\n  Zona: %s | Dias registrados: %d\n", zonas[i].nombre, zonas[i].num_lecturas);
-
-        if (zonas[i].num_lecturas == 0) {
-            printf("  -> No hay datos historicos suficientes para evaluar.\n");
-            continue;
-        }
-
-        Fecha inicio = zonas[i].historico[0].fecha;
-        Fecha fin    = zonas[i].historico[zonas[i].num_lecturas - 1].fecha;
-        printf("  Periodo evaluado: %02d/%02d/%04d al %02d/%02d/%04d\n",
-               inicio.dia, inicio.mes, inicio.anio, fin.dia, fin.mes, fin.anio);
-
-        float sum_co2 = 0, sum_so2 = 0, sum_no2 = 0, sum_pm25 = 0;
-        for (int j = 0; j < zonas[i].num_lecturas; j++) {
-            sum_co2  += zonas[i].historico[j].co2;
-            sum_so2  += zonas[i].historico[j].so2;
-            sum_no2  += zonas[i].historico[j].no2;
-            sum_pm25 += zonas[i].historico[j].pm25;
-        }
-
-        float prom_co2  = sum_co2  / zonas[i].num_lecturas;
-        float prom_so2  = sum_so2  / zonas[i].num_lecturas;
-        float prom_no2  = sum_no2  / zonas[i].num_lecturas;
-        float prom_pm25 = sum_pm25 / zonas[i].num_lecturas;
-
-        printf("  - Promedio CO2:   %7.2f | Limite: %6.2f | %s\n",
-               prom_co2,  LIMITE_CO2,  (prom_co2  > LIMITE_CO2)  ? "EXCEDE" : "NORMAL");
-        printf("  - Promedio SO2:   %7.2f | Limite: %6.2f | %s\n",
-               prom_so2,  LIMITE_SO2,  (prom_so2  > LIMITE_SO2)  ? "EXCEDE" : "NORMAL");
-        printf("  - Promedio NO2:   %7.2f | Limite: %6.2f | %s\n",
-               prom_no2,  LIMITE_NO2,  (prom_no2  > LIMITE_NO2)  ? "EXCEDE" : "NORMAL");
-        printf("  - Promedio PM2.5: %7.2f | Limite: %6.2f | %s\n",
-               prom_pm25, LIMITE_PM25, (prom_pm25 > LIMITE_PM25) ? "EXCEDE" : "NORMAL");
-    }
-    printf("\n==================================================\n");
-}
-
-void generarSemillaOculta(Zona zonas[], int num_zonas) {
-    int nivel;
-    printf("\n--- GENERADOR DE DATOS (SEMILLA) ---\n");
-    printf("Seleccione el nivel de contaminacion a simular:\n");
-    printf("  1. BAJO  (Valores normales, ideales para probar que NO hay alertas)\n");
-    printf("  2. MEDIO (Valores limitrofes, provocara algunas alertas esporadicas)\n");
-    printf("  3. ALTO  (Valores criticos, forzara el disparo de todas las alarmas)\n");
-    printf("  Opcion: ");
-
-    if (scanf("%d", &nivel) != 1) nivel = 1;
-    limpiarBuffer();
-    if (nivel < 1 || nivel > 3) nivel = 1;
-
-    srand((unsigned int) time(NULL));
-    time_t t_actual = time(NULL);
-
-    for (int i = 0; i < num_zonas; i++) {
-        zonas[i].num_lecturas = NUM_DIAS;
-
-        int perfil = (rand() % 3) + 1;
-
-        for (int j = 0; j < NUM_DIAS; j++) {
-            time_t t_hist = t_actual - (86400 * (NUM_DIAS - j));
-            struct tm *tm_hist = localtime(&t_hist);
-
-            zonas[i].historico[j].fecha.dia  = tm_hist->tm_mday;
-            zonas[i].historico[j].fecha.mes  = tm_hist->tm_mon + 1;
-            zonas[i].historico[j].fecha.anio = tm_hist->tm_year + 1900;
-
-            float base_trafico = 0.3f, var_trafico = 0.6f;
-            float base_ind     = 0.3f, var_ind     = 0.6f;
-
-            switch (nivel) {
-                case 2:
-                    if (perfil == 1 || perfil == 3) { base_trafico = 1.0f; var_trafico = 0.8f; }
-                    if (perfil == 2 || perfil == 3) { base_ind     = 1.0f; var_ind     = 0.8f; }
-                    break;
-                case 3:
-                    if (perfil == 1 || perfil == 3) { base_trafico = 2.1f; var_trafico = 1.0f; }
-                    if (perfil == 2 || perfil == 3) { base_ind     = 2.1f; var_ind     = 1.0f; }
-                    break;
-                default: break;
+        if (zonas[i].num_lecturas > 0) {
+            float suma_iqca = 0;
+            for (int j = 0; j < zonas[i].num_lecturas; j++) {
+                suma_iqca += zonas[i].historico[j].iqca;
             }
 
-            zonas[i].historico[j].co2  = (LIMITE_CO2  * base_trafico) + (rand() % (int)(LIMITE_CO2  * var_trafico + 1));
-            zonas[i].historico[j].pm25 = (LIMITE_PM25 * base_trafico) + (rand() % (int)(LIMITE_PM25 * var_trafico + 1));
-            zonas[i].historico[j].so2  = (LIMITE_SO2  * base_ind)     + (rand() % (int)(LIMITE_SO2  * var_ind     + 1));
-            zonas[i].historico[j].no2  = (LIMITE_NO2  * base_ind)     + (rand() % (int)(LIMITE_NO2  * var_ind     + 1));
+            Fecha inicio = zonas[i].historico[0].fecha;
+            Fecha fin = zonas[i].historico[zonas[i].num_lecturas - 1].fecha;
+
+            printf("\nZONA: %s | Promedio IQCA: %.1f\n", zonas[i].nombre, suma_iqca / zonas[i].num_lecturas);
+            printf("  Periodo evaluado: %02d/%02d/%04d al %02d/%02d/%04d (%d lecturas)\n",
+                   inicio.dia, inicio.mes, inicio.anio,
+                   fin.dia, fin.mes, fin.anio,
+                   zonas[i].num_lecturas);
+        } else {
+            printf("\nZONA: %s | Sin lecturas historicas.\n", zonas[i].nombre);
         }
-
-        zonas[i].clima.temperatura = 15.0f + (rand() % 15);
-        zonas[i].clima.viento      =  5.0f + (rand() % 20);
-        zonas[i].clima.humedad     = 40.0f + (rand() % 40);
-
-        zonas[i].actual       = zonas[i].historico[NUM_DIAS - 1];
-        zonas[i].tiene_actual = 1;
     }
-
-    char nombres_nivel[3][10] = {"BAJO", "MEDIO", "ALTO"};
-    printf("\n[SISTEMA] Se inyectaron 30 dias de datos (Nivel %s) en las %d zonas.\n",
-           nombres_nivel[nivel - 1], num_zonas);
-}
-
-static void calcularWMA(Zona *zona, float *out_co2, float *out_so2, float *out_no2, float *out_pm25) {
-    float s_co2 = 0, s_so2 = 0, s_no2 = 0, s_pm25 = 0;
-    int sum_pesos = 0;
-
-    for (int j = 0; j < zona->num_lecturas; j++) {
-        int peso = j + 1;
-        sum_pesos += peso;
-        s_co2  += zona->historico[j].co2  * peso;
-        s_so2  += zona->historico[j].so2  * peso;
-        s_no2  += zona->historico[j].no2  * peso;
-        s_pm25 += zona->historico[j].pm25 * peso;
-    }
-
-    float factor = 1.0f;
-    if (zona->clima.viento      > 15.0f) factor -= 0.10f;
-    if (zona->clima.temperatura > 25.0f) factor += 0.05f;
-    if (zona->clima.humedad     > 80.0f) factor += 0.05f;
-
-    *out_co2  = (s_co2  / sum_pesos) * factor;
-    *out_so2  = (s_so2  / sum_pesos) * factor;
-    *out_no2  = (s_no2  / sum_pesos) * factor;
-    *out_pm25 = (s_pm25 / sum_pesos) * factor;
 }
 
 void predecirNiveles(Zona zonas[], int num_zonas) {
     printf("\n==================================================\n");
-    printf("     PREDICCION A 24 HORAS (PROMEDIO PONDERADO)   \n");
+    printf("       PREDICCION METEOROLOGICA E INDICE (24H)    \n");
     printf("==================================================\n");
 
-    time_t t_actual = time(NULL);
+    Fecha hoy = obtenerFechaActual();
+    struct tm tm_hoy = {0};
+    tm_hoy.tm_mday = hoy.dia;
+    tm_hoy.tm_mon = hoy.mes - 1;
+    tm_hoy.tm_year = hoy.anio - 1900;
+    tm_hoy.tm_isdst = -1;
+    time_t time_hoy = mktime(&tm_hoy);
 
     for (int i = 0; i < num_zonas; i++) {
+        printf("\nZona: %s\n", zonas[i].nombre);
+
         if (zonas[i].num_lecturas == 0) {
-            printf("\n  Zona: %s\n  -> [ERROR] Sin datos para predecir.\n", zonas[i].nombre);
+            printf("  [!] Sin datos historicos suficientes para predecir.\n");
             continue;
         }
 
-        printf("\n  Zona: %s\n", zonas[i].nombre);
+        struct tm tm_zona = {0};
+        tm_zona.tm_mday = zonas[i].actual.fecha.dia;
+        tm_zona.tm_mon = zonas[i].actual.fecha.mes - 1;
+        tm_zona.tm_year = zonas[i].actual.fecha.anio - 1900;
+        tm_zona.tm_isdst = -1;
+        time_t time_zona = mktime(&tm_zona);
 
-        if (zonas[i].num_lecturas < 7) {
-            printf("  [!] ADVERTENCIA: Pocos registros (%d dias). Prediccion poco fiable.\n",
-                   zonas[i].num_lecturas);
-        }
-
-        Fecha ultima = zonas[i].historico[zonas[i].num_lecturas - 1].fecha;
-        struct tm tm_ultima = {0};
-        tm_ultima.tm_mday  = ultima.dia;
-        tm_ultima.tm_mon   = ultima.mes - 1;
-        tm_ultima.tm_year  = ultima.anio - 1900;
-        time_t t_ultima    = mktime(&tm_ultima);
-
-        double diff_dias = difftime(t_actual, t_ultima) / 86400.0;
+        double diff_dias = difftime(time_hoy, time_zona) / 86400.0;
         if (diff_dias > 2.0) {
-            printf("  [!] ADVERTENCIA: Datos desactualizados. Ultimo registro hace %.0f dias.\n", diff_dias);
+            printf("  [!] Advertencia: Datos no recientes (mas de 2 dias desactualizados).\n");
         }
 
-        float pred_co2, pred_so2, pred_no2, pred_pm25;
-        calcularWMA(&zonas[i], &pred_co2, &pred_so2, &pred_no2, &pred_pm25);
+        if (zonas[i].num_lecturas < 5) {
+            printf("  [!] Atencion: pocos datos (%d registrados). La prediccion puede no ser exacta.\n", zonas[i].num_lecturas);
+        }
 
-        printf("  - Prediccion CO2:   %7.2f | Limite: %7.2f | %s\n", pred_co2,  LIMITE_CO2,
-               (pred_co2  > LIMITE_CO2)  ? "ALERTA" : "SEGURO");
-        printf("  - Prediccion SO2:   %7.2f | Limite: %7.2f | %s\n", pred_so2,  LIMITE_SO2,
-               (pred_so2  > LIMITE_SO2)  ? "ALERTA" : "SEGURO");
-        printf("  - Prediccion NO2:   %7.2f | Limite: %7.2f | %s\n", pred_no2,  LIMITE_NO2,
-               (pred_no2  > LIMITE_NO2)  ? "ALERTA" : "SEGURO");
-        printf("  - Prediccion PM2.5: %7.2f | Limite: %7.2f | %s\n", pred_pm25, LIMITE_PM25,
-               (pred_pm25 > LIMITE_PM25) ? "ALERTA" : "SEGURO");
+        float suma_ponderada = 0;
+        int suma_pesos = 0;
+        for (int j = 0; j < zonas[i].num_lecturas; j++) {
+            int peso = j + 1;
+            suma_ponderada += zonas[i].historico[j].iqca * peso;
+            suma_pesos += peso;
+        }
+        float prediccion_iqca = (suma_pesos > 0) ? (suma_ponderada / suma_pesos) : 0;
+
+        if (zonas[i].clima.viento > 15.0f) prediccion_iqca *= 0.90f;
+        if (zonas[i].clima.humedad > 80.0f) prediccion_iqca *= 1.15f;
+
+        int prediccion_entera = (int)(prediccion_iqca + 0.5f);
+        int riesgo_futuro = determinarNivelRiesgo(prediccion_entera);
+
+        if (zonas[i].tiene_actual) {
+            printf("  IQCA Actual: %d\n", zonas[i].actual.iqca);
+        }
+        printf("  IQCA Predicho: %d [%s]\n", prediccion_entera, obtenerNombreNivel(riesgo_futuro));
     }
-    printf("\n==================================================\n");
-}
-
-static float calcularPorcentajeExceso(float valor, float limite) {
-    return ((valor / limite) * 100.0f) - 100.0f;
-}
-
-static const char *evaluarGravedad(float porcentaje) {
-    if (porcentaje <= 50.0f)  return "MODERADA ";
-    if (porcentaje <= 100.0f) return "PELIGROSA";
-    return "CRITICA  ";
 }
 
 void verAlertasActivas(Zona zonas[], int num_zonas) {
     printf("\n==================================================\n");
-    printf("       PANEL DE ALERTAS TEMPRANAS ACTIVAS         \n");
+    printf("         PANEL DE ESTADO REMAQ (TIEMPO REAL)      \n");
     printf("==================================================\n");
-    printf("[INFO] Filtrando zonas seguras...\n");
 
     long max_fecha_val = 0;
+
     for (int i = 0; i < num_zonas; i++) {
         if (zonas[i].tiene_actual) {
-            long f_val = (zonas[i].actual.fecha.anio * 10000L) +
-                         (zonas[i].actual.fecha.mes  * 100L)   +
-                          zonas[i].actual.fecha.dia;
-            if (f_val > max_fecha_val) max_fecha_val = f_val;
+            long val = zonas[i].actual.fecha.anio * 10000 +
+                       zonas[i].actual.fecha.mes * 100 +
+                       zonas[i].actual.fecha.dia;
+            if (val > max_fecha_val) {
+                max_fecha_val = val;
+            }
         }
     }
 
-    int zonas_seguras    = 0;
-    int hay_alertas_globales = 0;
+    int mostrados = 0;
 
     for (int i = 0; i < num_zonas; i++) {
-        int alerta_actual = 0;
-        int alerta_prev   = 0;
+        if (!zonas[i].tiene_actual) continue;
 
-        int evaluar_actual = 0;
-        if (zonas[i].tiene_actual) {
-            long f_val = (zonas[i].actual.fecha.anio * 10000L) +
-                         (zonas[i].actual.fecha.mes  * 100L)   +
-                          zonas[i].actual.fecha.dia;
-            if (f_val == max_fecha_val) {
-                evaluar_actual = 1;
-                if (zonas[i].actual.co2  > LIMITE_CO2  || zonas[i].actual.so2  > LIMITE_SO2 ||
-                    zonas[i].actual.no2  > LIMITE_NO2  || zonas[i].actual.pm25 > LIMITE_PM25) {
-                    alerta_actual = 1;
-                }
+        long val = zonas[i].actual.fecha.anio * 10000 +
+                   zonas[i].actual.fecha.mes * 100 +
+                   zonas[i].actual.fecha.dia;
+
+        if (val == max_fecha_val) {
+            mostrados++;
+            int riesgo_actual = zonas[i].actual.nivel_riesgo;
+
+            float suma_ponderada = 0;
+            int suma_pesos = 0;
+            for (int j = 0; j < zonas[i].num_lecturas; j++) {
+                int peso = j + 1;
+                suma_ponderada += zonas[i].historico[j].iqca * peso;
+                suma_pesos += peso;
             }
-        }
+            float prediccion_iqca = (suma_pesos > 0) ? (suma_ponderada / suma_pesos) : 0;
 
-        float pred_co2 = 0, pred_so2 = 0, pred_no2 = 0, pred_pm25 = 0;
-        if (zonas[i].num_lecturas > 0) {
-            calcularWMA(&zonas[i], &pred_co2, &pred_so2, &pred_no2, &pred_pm25);
-            if (pred_co2  > LIMITE_CO2  || pred_so2  > LIMITE_SO2 ||
-                pred_no2  > LIMITE_NO2  || pred_pm25 > LIMITE_PM25) {
-                alerta_prev = 1;
+            if (zonas[i].clima.viento > 15.0f) prediccion_iqca *= 0.90f;
+            if (zonas[i].clima.humedad > 80.0f) prediccion_iqca *= 1.15f;
+
+            int prediccion_entera = (int)(prediccion_iqca + 0.5f);
+            int riesgo_futuro = determinarNivelRiesgo(prediccion_entera);
+
+            printf("\nZONA: %s [%02d/%02d/%04d]\n",
+                   zonas[i].nombre,
+                   zonas[i].actual.fecha.dia,
+                   zonas[i].actual.fecha.mes,
+                   zonas[i].actual.fecha.anio);
+
+            printf("  [ALERTA DIARIA]\n");
+            printf("    Indice IQCA: %d puntos\n", zonas[i].actual.iqca);
+            printf("    Estado: %s\n", obtenerNombreNivel(riesgo_actual));
+            if (riesgo_actual >= 3) {
+                printf("    >> ALERTA DEL DIA ACTIVADA <<\n");
+            } else {
+                printf("    >> Nivel diario seguro.\n");
             }
-        }
 
-        if (alerta_actual || alerta_prev) {
-            hay_alertas_globales = 1;
-            printf("\nZONA: %s\n", zonas[i].nombre);
+            printf("  [ALERTA PREDICCION 24H]\n");
+            printf("    Indice IQCA Predicho: %d puntos\n", prediccion_entera);
+            printf("    Estado Futuro: %s\n", obtenerNombreNivel(riesgo_futuro));
+            if (riesgo_futuro >= 3) {
+                printf("    >> ALERTA DE PREDICCION ACTIVADA <<\n");
+            } else {
+                printf("    >> Nivel de prediccion seguro.\n");
+            }
             printf("--------------------------------------------------\n");
-
-            printf("  >> ALERTA EN TIEMPO REAL");
-            if (evaluar_actual) {
-                printf(" (%02d/%02d/%04d):\n",
-                       zonas[i].actual.fecha.dia, zonas[i].actual.fecha.mes, zonas[i].actual.fecha.anio);
-                if (alerta_actual) {
-                    float pct;
-                    if (zonas[i].actual.co2  > LIMITE_CO2) {
-                        pct = calcularPorcentajeExceso(zonas[i].actual.co2, LIMITE_CO2);
-                        printf("     - CO2   : %7.2f (Limite: %7.2f) -> [!] %s (+%.0f%%)\n",
-                               zonas[i].actual.co2, LIMITE_CO2, evaluarGravedad(pct), pct);
-                    }
-                    if (zonas[i].actual.so2  > LIMITE_SO2) {
-                        pct = calcularPorcentajeExceso(zonas[i].actual.so2, LIMITE_SO2);
-                        printf("     - SO2   : %7.2f (Limite: %7.2f) -> [!] %s (+%.0f%%)\n",
-                               zonas[i].actual.so2, LIMITE_SO2, evaluarGravedad(pct), pct);
-                    }
-                    if (zonas[i].actual.no2  > LIMITE_NO2) {
-                        pct = calcularPorcentajeExceso(zonas[i].actual.no2, LIMITE_NO2);
-                        printf("     - NO2   : %7.2f (Limite: %7.2f) -> [!] %s (+%.0f%%)\n",
-                               zonas[i].actual.no2, LIMITE_NO2, evaluarGravedad(pct), pct);
-                    }
-                    if (zonas[i].actual.pm25 > LIMITE_PM25) {
-                        pct = calcularPorcentajeExceso(zonas[i].actual.pm25, LIMITE_PM25);
-                        printf("     - PM2.5 : %7.2f (Limite: %7.2f) -> [!] %s (+%.0f%%)\n",
-                               zonas[i].actual.pm25, LIMITE_PM25, evaluarGravedad(pct), pct);
-                    }
-                } else {
-                    printf("     * Sin alertas. Niveles actuales seguros.\n");
-                }
-            } else {
-                printf(":\n     * Sin datos recientes para evaluar.\n");
-            }
-
-            printf("\n  >> ALERTA PREVENTIVA (Prediccion proximas 24h):\n");
-            if (zonas[i].num_lecturas > 0) {
-                if (alerta_prev) {
-                    float pct;
-                    if (pred_co2  > LIMITE_CO2) {
-                        pct = calcularPorcentajeExceso(pred_co2, LIMITE_CO2);
-                        printf("     - CO2   : %7.2f (Limite: %7.2f) -> [!] %s (+%.0f%%)\n",
-                               pred_co2, LIMITE_CO2, evaluarGravedad(pct), pct);
-                    }
-                    if (pred_so2  > LIMITE_SO2) {
-                        pct = calcularPorcentajeExceso(pred_so2, LIMITE_SO2);
-                        printf("     - SO2   : %7.2f (Limite: %7.2f) -> [!] %s (+%.0f%%)\n",
-                               pred_so2, LIMITE_SO2, evaluarGravedad(pct), pct);
-                    }
-                    if (pred_no2  > LIMITE_NO2) {
-                        pct = calcularPorcentajeExceso(pred_no2, LIMITE_NO2);
-                        printf("     - NO2   : %7.2f (Limite: %7.2f) -> [!] %s (+%.0f%%)\n",
-                               pred_no2, LIMITE_NO2, evaluarGravedad(pct), pct);
-                    }
-                    if (pred_pm25 > LIMITE_PM25) {
-                        pct = calcularPorcentajeExceso(pred_pm25, LIMITE_PM25);
-                        printf("     - PM2.5 : %7.2f (Limite: %7.2f) -> [!] %s (+%.0f%%)\n",
-                               pred_pm25, LIMITE_PM25, evaluarGravedad(pct), pct);
-                    }
-                } else {
-                    printf("     * Sin alertas. Prediccion a 24h segura.\n");
-                }
-            } else {
-                printf("     * Sin historial suficiente para predecir.\n");
-            }
-        } else {
-            zonas_seguras++;
         }
     }
 
-    if (!hay_alertas_globales) {
-        printf("\n  Excelente. No se registro ninguna alerta en el sistema.\n");
+    if (mostrados == 0) {
+        printf("\n  [INFO] No hay datos registrados.\n");
     }
-
-    printf("\n==================================================\n");
-    printf(" Zonas seguras omitidas de este reporte: %d\n", zonas_seguras);
-    printf("==================================================\n");
 }
 
 void verRecomendaciones(Zona zonas[], int num_zonas) {
-    int tipo_medida;
+    int sub_opcion;
+
     printf("\n==================================================\n");
-    printf("      RECOMENDACIONES Y MITIGACION DE DANOS       \n");
+    printf("      PROTOCOLOS OFICIALES DE ACCION (NECA)       \n");
     printf("==================================================\n");
-    printf("Seleccione el enfoque del reporte:\n");
-    printf("  1. Medidas Correctivas (Estado Actual)\n");
-    printf("  2. Medidas Preventivas (Prediccion a 24h)\n");
+    printf("  1. Ver recomendaciones actuales (hoy)\n");
+    printf("  2. Ver recomendaciones para prediccion a 24h\n");
     printf("  Opcion: ");
 
-    if (scanf("%d", &tipo_medida) != 1) tipo_medida = 1;
+    if (scanf("%d", &sub_opcion) != 1) {
+        limpiarBuffer();
+        return;
+    }
     limpiarBuffer();
-    if (tipo_medida != 1 && tipo_medida != 2) tipo_medida = 1;
+
+    if (sub_opcion != 1 && sub_opcion != 2) {
+        printf("\n  [ERROR] Opcion no valida.\n");
+        return;
+    }
 
     long max_fecha_val = 0;
-    if (tipo_medida == 1) {
-        for (int i = 0; i < num_zonas; i++) {
-            if (zonas[i].tiene_actual) {
-                long f_val = (zonas[i].actual.fecha.anio * 10000L) +
-                             (zonas[i].actual.fecha.mes  * 100L)   +
-                              zonas[i].actual.fecha.dia;
-                if (f_val > max_fecha_val) max_fecha_val = f_val;
-            }
-        }
-    }
 
     for (int i = 0; i < num_zonas; i++) {
-        printf("\n  ZONA: %s\n", zonas[i].nombre);
-        printf("--------------------------------------------------\n");
+        if (zonas[i].tiene_actual) {
+            long val = zonas[i].actual.fecha.anio * 10000 +
+                       zonas[i].actual.fecha.mes * 100 +
+                       zonas[i].actual.fecha.dia;
+            if (val > max_fecha_val) {
+                max_fecha_val = val;
+            }
+        }
+    }
 
-        float eval_co2, eval_so2, eval_no2, eval_pm25;
+    int mostrados = 0;
 
-        if (tipo_medida == 1) {
-            if (!zonas[i].tiene_actual) {
-                printf("  >> Sin datos recientes para generar medidas correctivas.\n");
+    for (int i = 0; i < num_zonas; i++) {
+        if (!zonas[i].tiene_actual) continue;
+
+        long val = zonas[i].actual.fecha.anio * 10000 +
+                   zonas[i].actual.fecha.mes * 100 +
+                   zonas[i].actual.fecha.dia;
+
+        if (val == max_fecha_val) {
+            mostrados++;
+            int riesgo = 0;
+
+            if (sub_opcion == 1) {
+                riesgo = zonas[i].actual.nivel_riesgo;
+                printf("\nZONA: %s [%02d/%02d/%04d] | ESTADO ACTUAL: %s\n",
+                       zonas[i].nombre,
+                       zonas[i].actual.fecha.dia,
+                       zonas[i].actual.fecha.mes,
+                       zonas[i].actual.fecha.anio,
+                       obtenerNombreNivel(riesgo));
+            } else {
+                float suma_ponderada = 0;
+                int suma_pesos = 0;
+                for (int j = 0; j < zonas[i].num_lecturas; j++) {
+                    int peso = j + 1;
+                    suma_ponderada += zonas[i].historico[j].iqca * peso;
+                    suma_pesos += peso;
+                }
+                float prediccion_iqca = (suma_pesos > 0) ? (suma_ponderada / suma_pesos) : 0;
+
+                if (zonas[i].clima.viento > 15.0f) prediccion_iqca *= 0.90f;
+                if (zonas[i].clima.humedad > 80.0f) prediccion_iqca *= 1.15f;
+
+                int prediccion_entera = (int)(prediccion_iqca + 0.5f);
+                riesgo = determinarNivelRiesgo(prediccion_entera);
+
+                printf("\nZONA: %s [%02d/%02d/%04d] | PREDICCION 24H: %s\n",
+                       zonas[i].nombre,
+                       zonas[i].actual.fecha.dia,
+                       zonas[i].actual.fecha.mes,
+                       zonas[i].actual.fecha.anio,
+                       obtenerNombreNivel(riesgo));
+            }
+
+            if (riesgo <= 2) {
+                printf("  >> Nivel seguro. Sin acciones de emergencia.\n");
                 continue;
             }
-            long f_val = (zonas[i].actual.fecha.anio * 10000L) +
-                         (zonas[i].actual.fecha.mes  * 100L)   +
-                          zonas[i].actual.fecha.dia;
-            if (f_val != max_fecha_val) {
-                printf("  >> Sin datos de hoy para evaluar medidas inmediatas.\n");
-                continue;
-            }
-            eval_co2  = zonas[i].actual.co2;
-            eval_so2  = zonas[i].actual.so2;
-            eval_no2  = zonas[i].actual.no2;
-            eval_pm25 = zonas[i].actual.pm25;
-        } else {
-            if (zonas[i].num_lecturas == 0) {
-                printf("  >> Sin historial suficiente para generar prevenciones a 24h.\n");
-                continue;
-            }
-            calcularWMA(&zonas[i], &eval_co2, &eval_so2, &eval_no2, &eval_pm25);
-        }
 
-        float p_co2  = (eval_co2  > LIMITE_CO2)  ? ((eval_co2  / LIMITE_CO2)  * 100.0f) - 100.0f : 0.0f;
-        float p_so2  = (eval_so2  > LIMITE_SO2)  ? ((eval_so2  / LIMITE_SO2)  * 100.0f) - 100.0f : 0.0f;
-        float p_no2  = (eval_no2  > LIMITE_NO2)  ? ((eval_no2  / LIMITE_NO2)  * 100.0f) - 100.0f : 0.0f;
-        float p_pm25 = (eval_pm25 > LIMITE_PM25) ? ((eval_pm25 / LIMITE_PM25) * 100.0f) - 100.0f : 0.0f;
-
-        int alerta_trafico   = (p_co2  > 0.0f || p_pm25 > 0.0f) ? 1 : 0;
-        int alerta_industria = (p_so2  > 0.0f || p_no2  > 0.0f) ? 1 : 0;
-
-        if (!alerta_trafico && !alerta_industria) {
-            printf("  >> Calidad del aire optima. No se requieren acciones.\n");
-            continue;
-        }
-
-        float max_p = p_co2;
-        if (p_pm25 > max_p) max_p = p_pm25;
-        if (p_no2  > max_p) max_p = p_no2;
-        if (p_so2  > max_p) max_p = p_so2;
-
-        int tipo_foco = (alerta_trafico && alerta_industria) ? 3 : (alerta_trafico ? 1 : 2);
-        int gravedad  = (max_p <= 50.0f) ? 1 : ((max_p <= 100.0f) ? 2 : 3);
-        const char *nivel_str = (gravedad == 1) ? "MODERADA" : ((gravedad == 2) ? "PELIGROSA" : "CRITICA");
-
-        printf("  [!] Contaminantes fuera de control (%s):\n", (tipo_medida == 1) ? "Actual" : "Prediccion");
-        if (p_co2  > 0.0f) printf("      - CO2   : +%.0f%%\n", p_co2);
-        if (p_so2  > 0.0f) printf("      - SO2   : +%.0f%%\n", p_so2);
-        if (p_no2  > 0.0f) printf("      - NO2   : +%.0f%%\n", p_no2);
-        if (p_pm25 > 0.0f) printf("      - PM2.5 : +%.0f%%\n", p_pm25);
-
-        printf("\n  >> Gravedad global: %s | Pico maximo: +%.0f%%\n", nivel_str, max_p);
-
-        switch (tipo_foco) {
-            case 1: printf("  >> Origen: Trafico pesado y polvo.\n"); break;
-            case 2: printf("  >> Origen: Emisiones industriales y combustion.\n"); break;
-            case 3: printf("  >> Origen: MIXTO (Trafico + Industria).\n"); break;
-        }
-
-        printf("  >> Plan de Accion:\n");
-        printf("     * Ciudadania:\n");
-
-        if (tipo_medida == 1) {
-            switch (gravedad) {
-                case 1: printf("       - Reducir actividad fisica exterior de inmediato.\n"); break;
-                case 2:
-                    printf("       - Colocarse mascarilla N95 si se encuentra en la calle.\n");
-                    printf("       - Cerrar ventanas de domicilios y oficinas.\n");
-                    break;
+            switch (riesgo) {
                 case 3:
-                    printf("       - Abandone los espacios abiertos inmediatamente.\n");
-                    printf("       - Acuda a un centro de salud si presenta ahogo.\n");
+                    printf("  - Limitar esfuerzo al aire libre.\n");
+                    printf("  - Monitoreo continuo de estaciones.\n");
                     break;
-            }
-        } else {
-            switch (gravedad) {
-                case 1: printf("       - Planifique rutas alternativas para evitar la zona manana.\n"); break;
-                case 2: printf("       - Prepare mascarillas N95 para su traslado matutino.\n"); break;
-                case 3:
-                    printf("       - Preparese para protocolos de teletrabajo/clases virtuales.\n");
-                    printf("       - Evite agendar actividades al aire libre para las proximas 24h.\n");
+                case 4:
+                    printf("  - Evitar esfuerzo al aire libre.\n");
+                    printf("  - Restriccion preventiva de transito pesado.\n");
                     break;
-            }
-        }
-
-        printf("     * Autoridades:\n");
-
-        if (tipo_medida == 1) {
-            switch (gravedad) {
-                case 1:
-                    if (tipo_foco == 1 || tipo_foco == 3) printf("       - Desplegar agentes para agilizar el transito bloqueado.\n");
-                    if (tipo_foco == 2 || tipo_foco == 3) printf("       - Enviar patrulla ambiental para verificacion rapida.\n");
+                case 5:
+                    printf("  - Mantener ventanas cerradas.\n");
+                    printf("  - Suspension de obras y reduccion industrial.\n");
                     break;
-                case 2:
-                    if (tipo_foco == 1 || tipo_foco == 3) printf("       - Cierre inmediato de vias a vehiculos pesados.\n");
-                    if (tipo_foco == 2 || tipo_foco == 3) printf("       - Inspeccion y multa a fabricas con emisiones anomalas.\n");
-                    break;
-                case 3:
-                    if (tipo_foco == 1 || tipo_foco == 3) printf("       - Suspension de obras publicas en este instante.\n");
-                    if (tipo_foco == 2 || tipo_foco == 3) printf("       - Clausura temporal de urgencia de las fuentes de emision.\n");
-                    break;
-            }
-        } else {
-            switch (gravedad) {
-                case 1:
-                    if (tipo_foco == 1 || tipo_foco == 3) printf("       - Anunciar desvios de trafico preventivos para manana.\n");
-                    if (tipo_foco == 2 || tipo_foco == 3) printf("       - Notificar a industrias para que monitoreen sus filtros.\n");
-                    break;
-                case 2:
-                    if (tipo_foco == 1 || tipo_foco == 3) printf("       - Preparar restriccion vehicular por placas para el amanecer.\n");
-                    if (tipo_foco == 2 || tipo_foco == 3) printf("       - Ordenar a las fabricas reducir su produccion nocturna.\n");
-                    break;
-                case 3:
-                    if (tipo_foco == 1 || tipo_foco == 3) printf("       - Emitir alerta roja en noticieros limitando la movilidad.\n");
-                    if (tipo_foco == 2 || tipo_foco == 3) {
-                        printf("       - Exigir paralizacion industrial de 24h a fabricas de la cuenca.\n");
-                        printf("       - Alertar a dispensarios medicos por posible pico de pacientes.\n");
-                    }
+                case 6:
+                    printf("  - Permanecer en interiores obligatoriamente.\n");
+                    printf("  - Declaratoria de Emergencia Sectorizada.\n");
                     break;
             }
         }
     }
-    printf("\n==================================================\n");
+
+    if (mostrados == 0) {
+        printf("\n  [INFO] No hay datos registrados para mostrar recomendaciones.\n");
+    }
 }
 
 void exportarHistorialCSV(Zona zonas[], int num_zonas) {
     printf("\n==================================================\n");
-    printf("         EXPORTAR HISTORIAL COMPLETO (CSV)        \n");
-    printf("==================================================\n");
-    printf("[INFO] Abriendo canal de escritura en disco...\n");
 
-    FILE *archivo = fopen("historial_calidad_aire.csv", "w");
+    FILE *archivo = fopen("reporte_quito.csv", "w");
     if (archivo == NULL) {
-        printf("\n[ERROR] No se pudo generar el archivo.\n");
-        printf("        Asegurese de que 'historial_calidad_aire.csv' no este\n");
-        printf("        abierto en Excel u otro programa actualmente.\n");
+        printf("[ERROR] No se pudo generar el archivo.\n");
         return;
     }
 
-    fprintf(archivo, "Zona,Fecha,CO2(ppm),SO2(ug/m3),NO2(ug/m3),PM2.5(ug/m3)\n");
+    fprintf(archivo, "Zona,Fecha,PM2.5,PM10,O3,CO,SO2,NO2,IQCA,Riesgo\n");
 
-    int registros_guardados = 0;
     for (int i = 0; i < num_zonas; i++) {
-        if (zonas[i].num_lecturas == 0) continue;
-
         for (int j = 0; j < zonas[i].num_lecturas; j++) {
             Lectura lec = zonas[i].historico[j];
-            fprintf(archivo, "%s,%02d/%02d/%04d,%.2f,%.2f,%.2f,%.2f\n",
-                    zonas[i].nombre,
-                    lec.fecha.dia, lec.fecha.mes, lec.fecha.anio,
-                    lec.co2, lec.so2, lec.no2, lec.pm25);
-            registros_guardados++;
+            fprintf(archivo, "%s,%02d/%02d/%04d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d,%s\n",
+                    zonas[i].nombre, lec.fecha.dia, lec.fecha.mes, lec.fecha.anio,
+                    lec.pm25, lec.pm10, lec.o3, lec.co, lec.so2, lec.no2,
+                    lec.iqca, obtenerNombreNivel(lec.nivel_riesgo));
         }
     }
-
     fclose(archivo);
 
-    printf("\n[SISTEMA] Exportacion finalizada con exito.\n");
-    printf("          Archivo guardado como: 'historial_calidad_aire.csv'\n");
-    printf("          Total de registros transferidos: %d\n", registros_guardados);
+    printf("[EXITO] Exportacion finalizada: reporte_quito.csv\n");
     printf("==================================================\n");
+}
+
+void importarDatosREMAQ(Zona zonas[], int n) {
+    int idx;
+    printf("\n--- IMPORTAR DATOS REMAQ (CSV) ---\n");
+    for (int i = 0; i < n; i++) printf("  %d. %s\n", i + 1, zonas[i].nombre);
+
+    printf("Seleccione la zona (1-%d): ", n);
+    if (scanf("%d", &idx) != 1 || idx < 1 || idx > n) {
+        printf("Zona no valida.\n");
+        limpiarBuffer();
+        return;
+    }
+    limpiarBuffer();
+    idx--;
+
+    char nombre_archivo[100];
+    printf("Ingrese nombre exacto del archivo: ");
+    scanf("%99[^\n]", nombre_archivo);
+    limpiarBuffer();
+
+    FILE *archivo = fopen(nombre_archivo, "r");
+    if (!archivo) {
+        printf("Error: No se pudo abrir el archivo '%s'.\n", nombre_archivo);
+        return;
+    }
+
+    char linea[256];
+    int agregados = 0, sobreescritos = 0;
+    Zona *zona = &zonas[idx];
+
+    fgets(linea, sizeof(linea), archivo);
+
+    while (fgets(linea, sizeof(linea), archivo)) {
+        int usa_pyc = (strchr(linea, ';') != NULL);
+        if (usa_pyc) {
+            for (int i = 0; linea[i]; i++) {
+                if (linea[i] == ',') linea[i] = '.';
+            }
+        }
+
+        const char *delim = usa_pyc ? ";" : ",";
+
+        char *token = strtok(linea, delim);
+        if (!token) continue;
+        int d = atoi(token);
+
+        token = strtok(NULL, delim); int m = token ? atoi(token) : 1;
+        token = strtok(NULL, delim); int y = token ? atoi(token) : 2026;
+
+        token = strtok(NULL, delim); float pm25 = token ? atof(token) : 0;
+        token = strtok(NULL, delim); float pm10 = token ? atof(token) : 0;
+        token = strtok(NULL, delim); float o3 = token ? atof(token) : 0;
+        token = strtok(NULL, delim); float co = token ? atof(token) : 0;
+        token = strtok(NULL, delim); float so2 = token ? atof(token) : 0;
+        token = strtok(NULL, delim); float no2 = token ? atof(token) : 0;
+
+        Lectura nueva;
+        nueva.fecha.dia = d;
+        nueva.fecha.mes = m;
+        nueva.fecha.anio = y;
+        nueva.pm25 = pm25;
+        nueva.pm10 = pm10;
+        nueva.o3 = o3;
+        nueva.co = co;
+        nueva.so2 = so2;
+        nueva.no2 = no2;
+
+        nueva.iqca = calcularIQCA_Global(pm25, pm10, o3, co, so2, no2);
+        nueva.nivel_riesgo = determinarNivelRiesgo(nueva.iqca);
+
+        int es_mismo_dia = 0;
+        int i_ult = -1;
+        for(int i = 0; i < zona->num_lecturas; i++) {
+            if(zona->historico[i].fecha.dia == d &&
+               zona->historico[i].fecha.mes == m &&
+               zona->historico[i].fecha.anio == y) {
+                es_mismo_dia = 1;
+                i_ult = i;
+                break;
+            }
+        }
+
+        if (es_mismo_dia) {
+            zona->historico[i_ult] = nueva;
+            zona->actual = nueva;
+            zona->tiene_actual = 1;
+            sobreescritos++;
+        } else {
+            zona->actual = nueva;
+            zona->tiene_actual = 1;
+            if (zona->num_lecturas < NUM_DIAS) {
+                zona->historico[zona->num_lecturas] = nueva;
+                zona->num_lecturas++;
+            } else {
+                for (int i = 0; i < NUM_DIAS - 1; i++) {
+                    zona->historico[i] = zona->historico[i + 1];
+                }
+                zona->historico[NUM_DIAS - 1] = nueva;
+            }
+            agregados++;
+        }
+    }
+    fclose(archivo);
+    printf("\n[INFO] Importacion completada. Nuevos: %d, Sobreescritos: %d\n", agregados, sobreescritos);
 }
 
 void ejecutarSistema(void) {
@@ -860,6 +844,7 @@ void ejecutarSistema(void) {
         printf("  6. Ver recomendaciones\n");
         printf("  7. Exportar historial a CSV\n");
         printf("  8. Gestionar zonas\n");
+        printf("  9. Cargar Datos\n");
         printf("  0. Salir\n");
         printf("========================================\n");
         printf("  Opcion: ");
@@ -876,12 +861,17 @@ void ejecutarSistema(void) {
             case 6:  verRecomendaciones(zonas, num_zonas);       presioneContinuar(); break;
             case 7:  exportarHistorialCSV(zonas, num_zonas);     presioneContinuar(); break;
             case 8:  gestionarZonas(zonas, &num_zonas);          break;
+            case 9: importarDatosREMAQ(zonas, num_zonas);        presioneContinuar(); break;
+            case 99: alterarDatosExposicion(zonas, num_zonas);   presioneContinuar(); break;
             case 0:  printf("\nGuardando datos y saliendo...\n"); break;
-            case 99: generarSemillaOculta(zonas, num_zonas);     presioneContinuar(); break;
-            default: printf("\nOpcion no valida.\n");             presioneContinuar(); break;
+
+            default: printf("\nOpcion no valida.\n");     presioneContinuar(); break;
         }
     } while (opcion != 0);
 
     guardarHistorico(zonas, num_zonas);
     printf("Sistema finalizado.\n");
+    presioneContinuar();
 }
+
+//todo explicar colores, mostrar niveles de viento y eso al hacer prediccion, etc

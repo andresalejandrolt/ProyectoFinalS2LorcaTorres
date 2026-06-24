@@ -29,11 +29,15 @@ typedef struct {
 } Fecha;
 
 typedef struct {
-    float co2;
+    Fecha fecha;
+    float pm25;
+    float pm10;
+    float o3;
+    float co;
     float so2;
     float no2;
-    float pm25;
-    Fecha fecha;
+    int iqca;
+    int nivel_riesgo;
 } Lectura;
 
 typedef struct {
@@ -63,10 +67,11 @@ int  cargarHistorico(Zona zonas[], int *n);
 int  guardarHistorico(Zona zonas[], int n);
 
 void gestionarZonas(Zona zonas[], int *num_zonas);
+void alterarDatosExposicion(Zona zonas[], int num_zonas);
 void registrarLectura(Zona zonas[], int n);
 void verMonitoreoActual(Zona zonas[], int num_zonas);
 void verPromediosHistoricos(Zona zonas[], int num_zonas);
-void generarSemillaOculta(Zona zonas[], int num_zonas);
+void importarDatosREMAQ(Zona zonas[], int n);
 void predecirNiveles(Zona zonas[], int num_zonas);
 void verAlertasActivas(Zona zonas[], int num_zonas);
 void verRecomendaciones(Zona zonas[], int num_zonas);
