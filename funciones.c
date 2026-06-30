@@ -877,5 +877,3 @@ void ejecutarSistema(void) {
     printf("Sistema finalizado.\n");
     presioneContinuar();
 }
-
-//todo explicar colores, mostrar niveles de viento y eso al hacer prediccion, etc
