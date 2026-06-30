@@ -120,7 +120,6 @@ void presioneContinuar(void) {
     while ((c = getchar()) != '\n' && c != EOF);
 }
 
-
 Fecha obtenerFechaActual(void) {
     time_t t = time(NULL);
     struct tm *tm_info = localtime(&t);
@@ -388,7 +387,6 @@ void verMonitoreoActual(Zona zonas[], int num_zonas) {
 
     long max_fecha_val = 0;
 
-    // 1. Encontrar la fecha mas reciente (la de "hoy" o la ultima ingresada)
     for (int i = 0; i < num_zonas; i++) {
         if (zonas[i].tiene_actual) {
             long val = zonas[i].actual.fecha.anio * 10000 +
@@ -400,7 +398,6 @@ void verMonitoreoActual(Zona zonas[], int num_zonas) {
         }
     }
 
-    // 2. Imprimir SOLO las zonas que coincidan con esa fecha mas reciente
     for (int i = 0; i < num_zonas; i++) {
         if (zonas[i].tiene_actual) {
             long val = zonas[i].actual.fecha.anio * 10000 +
