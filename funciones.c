@@ -116,8 +116,10 @@ void limpiarBuffer(void) {
 
 void presioneContinuar(void) {
     printf("\nPresione ENTER para continuar...");
-    getchar();
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
 }
+
 
 Fecha obtenerFechaActual(void) {
     time_t t = time(NULL);
@@ -435,6 +437,8 @@ void verPromediosHistoricos(Zona zonas[], int num_zonas) {
             Fecha fin = zonas[i].historico[zonas[i].num_lecturas - 1].fecha;
 
             printf("\nZONA: %s | Promedio IQCA: %.1f\n", zonas[i].nombre, suma_iqca / zonas[i].num_lecturas);
+            int nivel_promedio = determinarNivelRiesgo((int)(suma_iqca / zonas[i].num_lecturas));
+            printf("  Clasificacion del promedio historico: %s\n", obtenerNombreNivel(nivel_promedio));
             printf("  Periodo evaluado: %02d/%02d/%04d al %02d/%02d/%04d (%d lecturas)\n",
                    inicio.dia, inicio.mes, inicio.anio,
                    fin.dia, fin.mes, fin.anio,
